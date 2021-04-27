@@ -154,3 +154,11 @@ int main(){
     return 0;
 }
 ```
+
+上述程序的运行结果可以说明父类与子类的构造函数和析构函数的调用过程。
+```cpp
+construct A
+construct B
+destruct B
+construct B
+```
