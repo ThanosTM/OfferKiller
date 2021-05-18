@@ -17,6 +17,8 @@
 - 调度不公平，更倾向于执行I/O密集型任务。
 
 ## O(1)算法分析
+![image](http://mmbiz.qpic.cn/mmbiz_png/Ass1lsY6byuVTWDRZgQx3H63HrCvibHXIqmoh3oPkhSickqAqc3sx23nEicksicfAqDAMK52uIIbYaMaRgT7ib8wJNA/640?wx_fmt=png&tp=webp&wxfrom=5&wx_lazy=1&wx_co=1)
+
 #### 优先级队列结构
 
 ```c

@@ -1,4 +1,5 @@
 ## 概念
+> 在真实的硬件上实现理想的、精准、完全公平的多任务调度
 
 #### 静态优先级与进程权重
 
@@ -91,7 +92,31 @@ struct sched_entity {
 在时钟中断周期函数中, 需要更新当前运行进程的vruntime值, 并判断是否需要抢占当前进程
 
 
+## 细节
+#### 模块化思想
+![image](http://mmbiz.qpic.cn/mmbiz_png/Ass1lsY6byuVTWDRZgQx3H63HrCvibHXICBuAgxZXT45m0Vs7WORkEPLD7A2pDcbhWlqGHIV9cjEC5vVzic5ke1g/640?wx_fmt=png&tp=webp&wxfrom=5&wx_lazy=1&wx_co=1)
 
+分为两个层次，Core Scheduler是对所有Task共同逻辑的抽象，同时各种特定的类型又可以定义自己的sched_class，以链表的形式加入到系统中，而不需要改动Core的代码。
+
+#### 关于公平
+公平的精髓在于追求CPU资源分配的公平，引入load_weight的概念，保证所有可运行下的进程按照权重分配CPU资源。
+
+#### 时间粒度
+从一个粗时间粒度来看CFS调度保证了进程公平分配CPU的时间，CFS的时间粒度叫作调度周期。
+
+#### 如何保证有界的调度延迟
+- 传统的调度器是无法保证调度延迟的有界性的，例如固定时间片尾100ms，则当两个进程参与调度时，延迟为100ms，而当四个进程参与调度时，延迟为300ms；于是调度延迟与系统的负载有关。
+- CFS确保有界的调度延迟：保证在一个target_lantency中，所有的runnable进程都会至少得到一次执行。该target_lantency的计算如下：
+```c
+static u64 __sched_period(unsigned long  nr_running)
+{
+    if  (unlikely(nr_running > sched_nr_latency))
+        return  nr_running * sysctl_sched_min_granularity;
+    else
+        return  sysctl_sched_latency;
+}
+```
+其中sysctl_sched_latency = 6ms，sysctl_sched_min_granularity = 0.75ms即一个进程被调度至少执行的时间片大小。
 
 ## 参考
 - [https://blog.csdn.net/liuxiaowu19911121/article/details/47070111](https://blog.csdn.net/liuxiaowu19911121/article/details/47070111)
