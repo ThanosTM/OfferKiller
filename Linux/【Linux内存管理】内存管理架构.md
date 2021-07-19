@@ -110,10 +110,18 @@ struct zone {
 内核对于zone的访问是很频繁的，为了更好地利用硬件cache来提高访问速度，`struct zone`中还有一些填充位，帮助结构体元素与cache line对齐；这点与`struct page`对内存的精打细算的使用形成了鲜明的对比，因为zone的数量很有限，`struct zone`稍微大一点也没有关系。
 
 ## 高端内存
-#### 为什么需要高端内存
+#### ==为什么需要高端内存==
+Linux Doc中对highmem的描述为：
+> High memory (highmem) is used when the size of physical memory approaches or exceeds the maximum size of virtual memory. At that point it becomes
+impossible for the kernel to keep all of the available physical memory mapped
+at all times. This means the kernel needs to start using temporary mappings of
+the pieces of physical memory that it wants to access.
+
 32位Linux将4GB的内存空间划分为内核空间和用户空间，其中内核空间为第4个GB：0xC0000000~0xFFFFFFFF，如果系统的物理内存大于1GB，就没有足够的内核线性地址来固定映射到全部物理内存和I/O空间了；x86平台中设置了一个经验值896MB，将前896MB的内核空间固定映射到物理内存，之后的内核空间不能够建立固定的映射，称为高端内存。
 
 ![image](https://img-blog.csdn.net/20160831143301132)
+
+![image](https://img-blog.csdnimg.cn/20200514214159371.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3UwMTI0ODkyMzY=,size_16,color_FFFFFF,t_70)
 
 #### 核心思想
 ==借一段地址空间，建立临时地址映射，用完后释放，达到这段地址空间可以循环使用，访问所有物理内存。==
@@ -157,6 +165,9 @@ struct page {
 
 最新版本的Linux中该结构体中大量使用了union，也就是同一个元素在不同场景下具有不同的含义，这是因为每一个页框都需要用其来表示，在4GB物理内存的系统中，仅该项就要占据30MB以上，因此对这个结构体的设计必须非常考究，能复用的尽量复用。
 
+#### ==必须要理解的是==
+page结构与物理页相关，而并非与虚拟页相关，内核仅仅用这个数据结构来描述当前时刻在相关的物理页中存放的东西，目的在于描述物理内存本身；例如内核需要知道物理内存中所有的页是否空闲，若已被分配其所有者是谁，等等。
+
 #### 保留的页框池
 - 在多数情况下，请求页框时如果有足够的空闲内存可用则立即满足，否则将回收一些内存，并阻塞内核控制路径直到内存被释放；而当处理中断或执行临界区代码时，内核控制路径不能被阻塞，应该产生原子内存分配请求，原子请求不会被阻塞，也只会分配失败仅仅而已。
 - 内核设法尽量减少这种原子内存请求不能满足的事件发生，因此保留了一个页框池，仅在内存不足时被使用。
@@ -169,7 +180,7 @@ struct page {
 见【Linux内存管理】伙伴系统
 
 ## 每CPU页框高速缓存
-所有每CPU高速缓存包含一些预先分配的页框，用于满足本地CPU发出的单一内存请求。
+所有每CPU高速缓存包含一些预先分配的页框，用于满足本地CPU发出的单一内存请求。使用每CPU的原因在于首先减少了数据锁定，只需要在调用get_cpu()时禁止内核抢占，就能够保证该cpu对属于自己变量的独占访问；其次是大大减少了缓存失效，percpu接口按cacheline对齐其数据，消除了cache伪共享现象。
 
 #### 冷热高速缓存
 每个内存管理区和每个CPU提供了两个高速缓存：
@@ -196,7 +207,7 @@ if (page ！= NULL)
 ```
 
 #### vmalloc()
-而vmalloc()分配大块内存时得到的物理内存不连续：
+而vmalloc()分配大块内存时得到的物理内存不连续，他通过分配连续的物理内存块，再修正页表，将内存映射到逻辑地址空间的连续区域。该函数可能睡眠，因此不能在中断上下文中调用。
 ```c
 for (i = 0; i < area->nr_pages; i++) {
      struct page *page;
@@ -208,4 +219,8 @@ for (i = 0; i < area->nr_pages; i++) {
 ```
 
 #### kmalloc()
-kmalloc(size, flags)则是按照字节进行分配，如果申请的空间比较小，则使用slab分配器，否则将使用alloc_pages()直接使用buddy system。
+kmalloc(size, flags)则是按照字节进行分配，如果申请的空间比较小，则使用slab分配器，否则将使用alloc_pages()直接使用buddy system。当使用slab分配器时，kmalloc()会根据size大小去寻找一块合适的slab cachep来进行分配（因为slab cachep是用于固定大小内存分配的）。
+
+#### gfp_mask
+- GFP_KERNEL：最常用的标志，可能会引起睡眠或者阻塞，只能用于可以重新安全调度的进程上下文中（即没有持有锁）；当内存不足时可以让调用者睡眠、交换、刷新一些页到磁盘上。
+- GFP_ATOMIC：不能睡眠的内存分配，相对受到严格限制，当内存不足时分配成功的概率也比较小。常用于中断处理程序、软中断、tasklet中。
